@@ -99,7 +99,7 @@
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); width: 95%; max-width: 700px; 
             background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 50px; 
             box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 6px; z-index: 30; 
-            backdrop-filter: blur(10px); opacity: 0; 
+            backdrop-filter: blur(10px); opacity: 0; transition: transform 0.3s, opacity 0.3s;
         }
         select, #msg-input {
             border: 1px solid #e2e8f0; background: #fff; padding: 10px; border-radius: 20px; 
@@ -152,6 +152,24 @@
         }
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
         .highlight { z-index: 9991 !important; position: relative; box-shadow: 0 0 0 4px #fbbf24, 0 0 20px #fbbf24; background: rgba(255,255,255,0.1); border-radius: 8px;}
+        
+        /* 전송 로켓 스타일 */
+        #flying-rocket {
+            position: fixed; font-size: 60px; z-index: 10000;
+            transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            pointer-events: none;
+            display: none;
+        }
+        /* 연기 파티클 */
+        .smoke-puff {
+            position: fixed; width: 20px; height: 20px; background: rgba(255,255,255,0.8);
+            border-radius: 50%; z-index: 9999; pointer-events: none;
+            animation: smokeAnim 1s forwards;
+        }
+        @keyframes smokeAnim {
+            0% { transform: scale(0.5); opacity: 0.8; }
+            100% { transform: scale(2); opacity: 0; }
+        }
     </style>
 </head>
 <body>
@@ -184,14 +202,13 @@
         <div id="sim-controls">
             <button onclick="togglePause()" id="btn-pause">⏸</button>
             <button onclick="restartTutorial()" title="튜토리얼 다시보기">❓</button>
-            <!-- [NEW] 우주 댄스 버튼 -->
             <button onclick="triggerSpaceDance()" id="btn-space-dance" title="우주 댄스 파티!">🛸</button>
         </div>
     </div>
 
     <div id="guide-text">
         <h2>🪐 우주정복모임</h2>
-        <p>우주정복자를 위한 공간입니다.<br>타코를 건드리면 화를 낼지도 몰라요!</p>
+        <p>친구를 클릭해서 직접 조종해보세요!<br>방향키: 이동 / Space: 점프 / X: 상호작용</p>
     </div>
 
     <div id="mailbox-icon" onclick="openMyMsgModal()"></div>
@@ -215,6 +232,9 @@
         <input type="text" id="msg-input" placeholder="메시지를 입력하세요" maxlength="50">
         <button id="send-btn">➤</button>
     </div>
+
+    <!-- 전송용 로켓 요소 -->
+    <div id="flying-rocket">🚀</div>
 
     <canvas id="canvas"></canvas>
 
@@ -242,39 +262,167 @@
     const ctx = canvas.getContext('2d');
     let width, height;
     
-    // 상태 변수
     let particles = [];
     let humans = [];
     let animals = [];
     let hearts = [];
     let isPaused = false;
     let isInitialized = false;
-    // [NEW] 우주 댄스 모드 변수
     let isSpaceMode = false;
     let spaceModeTimer = 0;
+    
+    const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false, ' ': false, x: false };
+    let selectedHuman = null;
 
-    // --- 설정 값 ---
     const CONFIG = {
         text: '우주정복모임',
         colors: ['#ffffff', '#fbbf24', '#f87171', '#60a5fa'] 
     };
 
     const HUMAN_TYPES = [
-        { name: '임승연', hair: 'SHORT', color: '#002a30', room: 0 }, // Room 0: TL
-        { name: '김윤영', hair: 'BOB', color: '#f0f8ff', room: 1 },    // Room 1: TR
-        { name: '심하연', hair: 'PONYTAIL', color: '#000080', room: 2 },// Room 2: BL
-        { name: '정소영', hair: 'MEDIUM', color: '#0047ab', room: 3 }  // Room 3: BR
+        { name: '임승연', hair: 'SHORT', color: '#002a30', room: 0 }, 
+        { name: '김윤영', hair: 'BOB', color: '#f0f8ff', room: 1 },    
+        { name: '심하연', hair: 'PONYTAIL', color: '#000080', room: 2 },
+        { name: '정소영', hair: 'MEDIUM', color: '#0047ab', room: 3 }  
     ];
 
-    // [FIX] 동물 방 배정 설정
     const ANIMAL_TYPES = [
-        { id: 'CAT', name: '타코', color: '#9ca3af', ear: 'POINTY', room: 0 }, // 승연방
-        { id: 'POODLE', name: '코코', color: '#854d0e', ear: 'PUFFY', room: 1 }, // 윤영방
-        { id: 'COCKER1', name: '황토코카', color: '#d97706', ear: 'LONG', room: 3 }, // 소영방
-        { id: 'COCKER2', name: '얼룩코카', color: '#e5e7eb', sub: '#4b5563', ear: 'LONG_MIX', room: 3 } // 소영방
+        { id: 'CAT', name: '타코', color: '#9ca3af', ear: 'POINTY', room: 0 }, 
+        { id: 'POODLE', name: '코코', color: '#854d0e', ear: 'PUFFY', room: 1 }, 
+        { id: 'COCKER1', name: '황토코카', color: '#d97706', ear: 'LONG', room: 3 }, 
+        { id: 'COCKER2', name: '얼룩코카', color: '#e5e7eb', sub: '#4b5563', ear: 'LONG_MIX', room: 3 } 
     ];
 
-    // 암호 및 인트로 로직
+    // 키보드 리스너
+    window.addEventListener('keydown', (e) => {
+        // 입력창에 포커스 있을 때는 이동 키 무시
+        if (document.activeElement.tagName === 'INPUT') return;
+        keys[e.key] = true;
+    });
+    window.addEventListener('keyup', (e) => {
+        keys[e.key] = false;
+        if (e.key === 'x' && selectedHuman) {
+            interactAround(selectedHuman);
+        }
+    });
+
+    // [NEW] 가구 상호작용 체크 함수
+    function checkFurnitureInteraction(actor) {
+        const rw = width / 2;
+        const rh = height / 2;
+        
+        // 침대 위치 체크 (대략적인 범위)
+        // Room 0, 2: 왼쪽, Room 1, 3: 오른쪽
+        const bedRects = [
+            { x: 20, y: rh * 0.6 - 30, w: 80, h: 100 }, // Room 0
+            { x: rw + rw - 120, y: rh * 0.6 - 30, w: 80, h: 100 }, // Room 1
+            { x: 20, y: rh + rh * 0.6 - 30, w: 80, h: 100 }, // Room 2
+            { x: rw + rw - 120, y: rh + rh * 0.6 - 30, w: 80, h: 100 } // Room 3
+        ];
+
+        // 책상 위치 체크
+        const deskRects = [
+            { x: rw - 100, y: rh * 0.6 - 20, w: 80, h: 50 }, // Room 0
+            { x: rw + 20, y: rh * 0.6 - 20, w: 80, h: 50 }, // Room 1
+            { x: rw - 120, y: rh + rh * 0.6 - 20, w: 100, h: 50 }, // Room 2
+            { x: rw + 20, y: rh + rh * 0.6 - 20, w: 80, h: 50 } // Room 3
+        ];
+
+        // 침대 체크
+        for (let bed of bedRects) {
+            if (actor.x > bed.x && actor.x < bed.x + bed.w && actor.y > bed.y && actor.y < bed.y + bed.h + 50) {
+                return { type: 'BED', x: bed.x + bed.w/2, y: bed.y + 60 };
+            }
+        }
+
+        // 책상 체크
+        for (let desk of deskRects) {
+            if (actor.x > desk.x && actor.x < desk.x + desk.w && actor.y > desk.y && actor.y < desk.y + desk.h + 50) {
+                return { type: 'DESK', x: desk.x + desk.w/2, y: desk.y + 40 };
+            }
+        }
+        
+        return null;
+    }
+
+    function interactAround(actor) {
+        // 1. 동물과의 상호작용
+        const allEntities = [...humans, ...animals];
+        let interacted = false;
+        
+        // 거리순으로 가장 가까운 동물 찾기
+        let closestAnimal = null;
+        let minADist = 60;
+
+        animals.forEach(target => {
+            const dist = Math.sqrt(Math.pow(target.x - actor.x, 2) + Math.pow(target.y - actor.y, 2));
+            if (dist < minADist) {
+                minADist = dist;
+                closestAnimal = target;
+            }
+        });
+
+        if (closestAnimal) {
+            interacted = true;
+            // [NEW] 허그 로직
+            if (closestAnimal.isCat) {
+                // 고양이: 80% 화냄, 20% 허그
+                if (Math.random() < 0.8) {
+                    closestAnimal.triggerAngry();
+                } else {
+                    startHug(actor, closestAnimal);
+                }
+            } else {
+                // 강아지: 무조건 허그
+                startHug(actor, closestAnimal);
+            }
+            return;
+        }
+
+        // 2. 가구와의 상호작용
+        const furniture = checkFurnitureInteraction(actor);
+        if (furniture) {
+            interacted = true;
+            if (furniture.type === 'BED') {
+                actor.state = 'SLEEP_BED';
+                actor.x = furniture.x;
+                actor.y = furniture.y;
+                actor.timer = 600; // 10초 (60프레임 기준)
+            } else if (furniture.type === 'DESK') {
+                actor.state = 'SIT_WORK';
+                actor.x = furniture.x;
+                actor.y = furniture.y;
+            }
+            return;
+        }
+
+        // 아무도 없으면 혼자 하트
+        if(!interacted) {
+             for(let i=0; i<2; i++) hearts.push(new Heart(actor.x, actor.y - 60));
+        }
+    }
+
+    // [NEW] 허그 시작 함수
+    function startHug(human, animal) {
+        human.state = 'HUG';
+        human.timer = 180; // 3초
+        human.hugTarget = animal;
+        
+        animal.state = 'BE_HUGGED';
+        animal.timer = 180;
+        
+        // 위치 조정
+        animal.x = human.x;
+        animal.y = human.y + 10;
+        
+        // 하트 펑펑
+        for(let i=0; i<10; i++) {
+            setTimeout(() => {
+                hearts.push(new Heart(human.x + (Math.random()-0.5)*30, human.y - 40));
+            }, i * 200);
+        }
+    }
+
     function unlockGate() {
         const pass = document.getElementById('gate-pass').value;
         const msg = document.getElementById('login-msg');
@@ -309,13 +457,11 @@
         }
     }
 
-    // 튜토리얼 로직
     let tutoStep = 0;
     const tutoSteps = [
-        { title: "우주정복자님 환영해요! 👋", desc: "이곳은 우리들만의 비밀 아지트입니다.<br>각자의 방에서 쉬고 있는 친구들을 구경하세요.", target: null },
-        { title: "익명 메시지 전송 📨", desc: "여기서 친구에게(혹은 모두에게)<br>하고 싶은 말을 <b>익명</b>으로 보낼 수 있어요.", target: 'input-bar' },
-        { title: "우편함 확인 📮", desc: "나에게 온 편지는 여기서 확인하세요.<br>이름을 입력하면 내 편지를 모아줍니다.", target: 'mailbox-icon' },
-        { title: "터치해보세요! 👆", desc: "친구들이나 강아지를 누르면 하트가 나와요.<br>하지만 <b>타코(고양이)</b>는 조심하세요!<br>할퀼지도 모릅니다. 😾", target: null },
+        { title: "우주정복자님 환영해요! 👋", desc: "이곳은 우리들만의 비밀 아지트입니다.<br>캐릭터를 클릭해서 직접 조종해보세요!", target: null },
+        { title: "직접 조종하기 🎮", desc: "캐릭터를 <b>클릭</b>해서 선택한 후,<br><b>방향키</b>로 이동하고 <b>Space</b>로 점프하세요.<br><b>X키</b>로 동물과 놀거나 가구(침대, 책상)를 사용하세요!", target: null },
+        { title: "익명 메시지 전송 📨", desc: "친구에게 하고 싶은 말을 <b>익명</b>으로 보내세요.<br>메시지는 로켓을 타고 날아갑니다! 🚀", target: 'input-bar' },
         { title: "우주 댄스 파티! 🛸", desc: "왼쪽 위의 <b>UFO 버튼</b>을 눌러보세요.<br>모두가 우주복을 입고 춤을 춥니다! 💃🕺", target: 'btn-space-dance' }
     ];
 
@@ -346,7 +492,6 @@
         else { updateTutorial(); }
     }
 
-    // --- 그래픽 유틸리티 ---
     function drawRoundRect(ctx, x, y, w, h, r) {
         if (w < 2 * r) r = w / 2; if (h < 2 * r) r = h / 2;
         ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.fill();
@@ -354,12 +499,7 @@
 
     // --- 방 그리기 ---
     function drawRooms(ctx, width, height) {
-        // 우주 모드일 땐 방 배경을 어둡게
-        if (isSpaceMode) {
-            ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0,0,width,height);
-            return;
-        }
-
+        if (isSpaceMode) { ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0,0,width,height); return; }
         const rw = width / 2; const rh = height / 2;
         drawSeungyeonRoom(ctx, 0, 0, rw, rh);
         drawYunyoungRoom(ctx, rw, 0, rw, rh);
@@ -374,52 +514,69 @@
     function drawSeungyeonRoom(ctx, x, y, w, h) {
         ctx.fillStyle = '#0f2f36'; ctx.fillRect(x, y, w, h);
         ctx.fillStyle = '#0b2329'; ctx.fillRect(x, y + h*0.6, w, h*0.4);
-        ctx.fillStyle = '#1a4d55'; ctx.fillRect(x + 20, y + h*0.6 - 30, 80, 50); 
-        ctx.fillStyle = '#2f6f7a'; ctx.fillRect(x + 20, y + h*0.6, 120, 80); 
-        ctx.fillStyle = '#e0f2f1'; ctx.fillRect(x + 30, y + h*0.6 + 10, 40, 20); 
+        drawBed(ctx, x + 20, y + h*0.6, '#1a4d55', '#e0f2f1');
+        drawDesk(ctx, x + w - 100, y + h*0.6, '#2f6f7a');
+        ctx.fillStyle = '#d4a373'; ctx.fillRect(x + w - 40, y + h*0.6 - 60, 30, 80); 
+        ctx.fillRect(x + w - 50, y + h*0.6 - 60, 50, 10); 
+        ctx.fillStyle = '#ffccbc'; ctx.beginPath(); ctx.arc(x + w - 80, y + h - 30, 8, 0, Math.PI, false); ctx.fill(); 
     }
 
     function drawYunyoungRoom(ctx, x, y, w, h) {
         ctx.fillStyle = '#e6f2ff'; ctx.fillRect(x, y, w, h);
         ctx.fillStyle = '#cce5ff'; ctx.fillRect(x, y + h*0.6, w, h*0.4);
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(x + w/2, y + h*0.8, 80, 40, 0, 0, Math.PI*2); ctx.fill(); 
-        ctx.fillStyle = '#99ccff'; ctx.fillRect(x + w - 120, y + h*0.6 - 40, 100, 60); 
+        drawBed(ctx, x + w - 120, y + h*0.6, '#99ccff', '#fff');
+        drawDesk(ctx, x + 20, y + h*0.6, '#b3d9ff');
+        ctx.fillStyle = '#ffab91'; ctx.beginPath(); ctx.moveTo(x+50, y+h-50); ctx.lineTo(x+75, y+h-80); ctx.lineTo(x+100, y+h-50); ctx.fill(); 
+        ctx.fillRect(x+55, y+h-50, 40, 30); ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(x+75, y+h-20, 10, Math.PI, 0); ctx.fill(); 
     }
 
     function drawHayeonRoom(ctx, x, y, w, h) {
         ctx.fillStyle = '#1a237e'; ctx.fillRect(x, y, w, h);
         ctx.fillStyle = '#0d1642'; ctx.fillRect(x, y + h*0.6, w, h*0.4);
-        ctx.fillStyle = '#283593'; drawRoundRect(ctx, x + 50, y + h*0.6 - 20, 100, 60, 10);
-        ctx.fillStyle = '#000'; ctx.fillRect(x + w/2 - 40, y + 50, 80, 60);
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x+w/2, y+80, 2, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#3949ab'; ctx.fillRect(x + w - 120, y + h*0.6, 100, 50); 
+        drawBed(ctx, x + 20, y + h*0.6, '#283593', '#c5cae9');
+        drawDesk(ctx, x + w - 120, y + h*0.6, '#3949ab');
+        ctx.fillStyle = '#cfd8dc'; ctx.fillRect(x + w - 80, y + h*0.6 - 25, 20, 15); 
+        ctx.fillStyle = '#1565c0'; ctx.fillRect(x + 20, y + h*0.3, 50, 100);
+        ctx.fillStyle = '#90caf9'; for(let i=0; i<3; i++) ctx.fillRect(x+25, y+h*0.3 + 10 + i*30, 40, 5); 
     }
 
     function drawSoyoungRoom(ctx, x, y, w, h) {
         ctx.fillStyle = '#0047ab'; ctx.fillRect(x, y, w, h);
         ctx.fillStyle = '#003380'; ctx.fillRect(x, y + h*0.6, w, h*0.4);
-        ctx.fillStyle = '#2962ff'; ctx.fillRect(x + w - 80, y + h*0.4, 60, 120);
-        ctx.fillStyle = '#448aff'; ctx.fillRect(x + 50, y + 50, 40, 50);
+        drawBed(ctx, x + w - 120, y + h*0.6, '#2962ff', '#bbdefb');
+        drawDesk(ctx, x + 20, y + h*0.6, '#448aff');
+        ctx.fillStyle = '#fff'; ctx.fillRect(x+50, y+50, 30, 40); ctx.fillRect(x+90, y+30, 40, 30);
+        ctx.fillStyle = '#ffccbc'; ctx.beginPath(); ctx.arc(x + w - 40, y + h - 30, 8, 0, Math.PI, false); ctx.fill();
+        ctx.beginPath(); ctx.arc(x + w - 70, y + h - 30, 8, 0, Math.PI, false); ctx.fill();
     }
 
-    // --- [NEW] 우주 댄스 로직 ---
+    function drawBed(ctx, x, y, bodyColor, blanketColor) {
+        ctx.fillStyle = bodyColor; ctx.fillRect(x, y - 30, 80, 40);
+        ctx.fillStyle = blanketColor; drawRoundRect(ctx, x, y, 80, 100, 5);
+        ctx.fillStyle = '#fff'; drawRoundRect(ctx, x + 10, y + 5, 60, 20, 5);
+    }
+    function drawDesk(ctx, x, y, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y - 20, 80, 10); ctx.fillRect(x + 5, y - 10, 10, 40); ctx.fillRect(x + 65, y - 10, 10, 40); 
+    }
+
+    let lastDanceTime = 0;
     function triggerSpaceDance() {
         if (isSpaceMode) return;
-        isSpaceMode = true;
-        spaceModeTimer = 500; // 지속 시간
-        
-        // 섬광 효과
+        const now = Date.now();
+        if (now - lastDanceTime < 30000) { 
+            alert("🛸 UFO 엔진 충전 중... 잠시 후에 다시 시도해주세요!");
+            return;
+        }
+        lastDanceTime = now; isSpaceMode = true; spaceModeTimer = 500; 
         const flash = document.createElement('div');
         flash.style.position = 'fixed'; flash.style.top=0; flash.style.left=0; flash.style.width='100%'; flash.style.height='100%';
         flash.style.background = 'white'; flash.style.zIndex = 9999; flash.style.transition = 'opacity 0.5s';
         document.body.appendChild(flash);
         setTimeout(() => { flash.style.opacity = 0; setTimeout(() => flash.remove(), 500); }, 100);
-
-        // 모두 중앙으로 소환 + 춤추기 상태
         [...humans, ...animals].forEach(ent => {
             ent.state = 'DANCE';
-            ent.x = width/2 + (Math.random()-0.5)*300;
-            ent.y = height/2 + (Math.random()-0.5)*200;
+            ent.x = width/2 + (Math.random()-0.5)*300; ent.y = height/2 + (Math.random()-0.5)*200;
             ent.targetX = ent.x; ent.targetY = ent.y;
         });
     }
@@ -444,12 +601,27 @@
         constructor() {
             this.x = width/2; this.y = height/2; this.targetX = this.x; this.targetY = this.y;
             this.state = 'IDLE'; this.timer = Math.random() * 100; this.direction = 1; 
+            // 점프용 변수
+            this.groundY = 0; this.yVelocity = 0; this.isJumping = false;
         }
         updateMovement(speed = 1) {
+            // 점프 물리
+            if (this.isJumping) {
+                this.y += this.yVelocity;
+                this.yVelocity += 0.8; // 중력
+                if (this.y >= this.groundY) {
+                    this.y = this.groundY;
+                    this.isJumping = false;
+                    this.yVelocity = 0;
+                }
+            } else {
+                this.groundY = this.y;
+            }
+
             if (this.state === 'WALK' || this.state === 'RUN' || this.state === 'FLY_HOME') {
                 const dx = this.targetX - this.x; const dy = this.targetY - this.y; const dist = Math.sqrt(dx*dx + dy*dy);
                 if (dist < 5) { 
-                    if (this.state === 'FLY_HOME') { this.state = 'IDLE'; isSpaceMode = false; } // 복귀 완료
+                    if (this.state === 'FLY_HOME') { this.state = 'IDLE'; isSpaceMode = false; } 
                     else { this.state = 'IDLE'; this.timer = 50 + Math.random() * 100; }
                 } 
                 else { this.x += (dx / dist) * speed; this.y += (dy / dist) * speed; this.direction = dx > 0 ? 1 : -1; }
@@ -462,6 +634,7 @@
         constructor(data, idx) {
             super();
             this.type = data; this.color = data.color; this.homeRoom = data.room;
+            this.isSelected = false; 
             const rw = width/2; const rh = height/2;
             const rx = (this.homeRoom % 2) * rw; const ry = Math.floor(this.homeRoom / 2) * rh;
             this.x = rx + rw/2; this.y = ry + rh/2 + 50; 
@@ -469,7 +642,6 @@
         setRandomTarget() {
             const rw = width/2; const rh = height/2;
             let roomIdx = this.homeRoom;
-            // [FIX] 다른 방 방문 확률 증가 (20% -> 40%)
             if (Math.random() < 0.4) roomIdx = Math.floor(Math.random() * 4);
             const rx = (roomIdx % 2) * rw; const ry = Math.floor(roomIdx / 2) * rh;
             this.targetX = rx + 50 + Math.random() * (rw - 100);
@@ -483,22 +655,64 @@
         }
         update() {
             if (isPaused) return;
-            
-            // [NEW] 우주 댄스 모드
             if (isSpaceMode && this.state === 'DANCE') {
                 spaceModeTimer--;
-                if (spaceModeTimer <= 0) this.returnHome(); // 시간 끝나면 복귀
-                return; // 춤만 춤
+                if (spaceModeTimer <= 0) this.returnHome();
+                return; 
             }
-            if (this.state === 'FLY_HOME') {
-                this.updateMovement(5); // 빠른 속도로 복귀
+            if (this.state === 'FLY_HOME') { this.updateMovement(5); return; }
+
+            // [NEW] 상호작용 상태 타이머 (HUG, SLEEP, WORK 등)
+            if (this.state === 'HUG' || this.state === 'SLEEP_BED') {
+                this.timer--;
+                if (this.timer <= 0) {
+                    this.state = 'IDLE';
+                    if (this.state === 'HUG' && this.hugTarget) this.hugTarget.state = 'IDLE';
+                }
+            }
+
+            // 직접 조종 모드
+            if (this.isSelected) {
+                let dx = 0; let dy = 0;
+                if (keys.w || keys.ArrowUp) dy = -1;
+                if (keys.s || keys.ArrowDown) dy = 1;
+                if (keys.a || keys.ArrowLeft) dx = -1;
+                if (keys.d || keys.ArrowRight) dx = 1;
+
+                if (dx !== 0 || dy !== 0) {
+                    // [NEW] 특수 상태에서 이동 키 입력 시 해제
+                    if (this.state === 'SLEEP_BED' || this.state === 'SIT_WORK') {
+                        this.state = 'IDLE';
+                        this.timer = 0;
+                    }
+                    // HUG 상태는 3초 강제 (이동 불가)
+                    if (this.state !== 'HUG') {
+                        this.state = 'WALK';
+                        this.direction = dx !== 0 ? dx : this.direction;
+                        this.x += dx * 2;
+                        this.y += dy * 2;
+                        this.x = Math.max(20, Math.min(width-20, this.x));
+                        this.y = Math.max(20, Math.min(height-20, this.y));
+                    }
+                } else {
+                    if (this.state === 'WALK') this.state = 'IDLE';
+                }
+
+                // 점프 (특수 상태 아닐 때만)
+                if (keys[' '] && !this.isJumping && this.state !== 'HUG' && this.state !== 'SLEEP_BED' && this.state !== 'SIT_WORK') {
+                    this.isJumping = true;
+                    this.yVelocity = -12;
+                    this.groundY = this.y;
+                }
+                
+                this.updateMovement();
                 return;
             }
 
+            // AI 모드
             this.timer--;
             if (this.timer <= 0) {
                 const r = Math.random();
-                // [FIX] 하연이 AI 작업 확률 (더 증가: 0.6 -> 0.8)
                 if (this.type.name === '심하연' && r < 0.8) {
                     this.state = 'AI_WORK'; this.timer = 600;
                     const rw = width/2; const rh = height/2;
@@ -523,61 +737,67 @@
         draw() {
             ctx.save(); ctx.translate(this.x, this.y);
             
-            // [NEW] 우주복 그리기 (DANCE or FLY_HOME)
-            if (this.state === 'DANCE' || this.state === 'FLY_HOME') {
-                if (this.state === 'DANCE') {
-                    // 춤 동작 (위아래 + 회전)
-                    const danceBob = Math.sin(Date.now()*0.01) * 5;
-                    ctx.translate(0, danceBob);
-                    ctx.rotate(Math.sin(Date.now()*0.005) * 0.1);
-                } else {
-                    // 나는 동작 (기울기)
-                    ctx.rotate(this.direction * 0.5);
-                }
-
-                // 우주복 (흰색 + 둥근 헬멧)
-                ctx.fillStyle = '#fff'; drawRoundRect(ctx, -15, -45, 30, 45, 10); // 몸통
-                // 팔
-                if (this.state === 'DANCE') {
-                    const armWag = Math.sin(Date.now()*0.02) * 10;
-                    ctx.beginPath(); ctx.arc(-18, -35 + armWag, 6, 0, Math.PI*2); ctx.fill();
-                    ctx.beginPath(); ctx.arc(18, -35 - armWag, 6, 0, Math.PI*2); ctx.fill();
-                } else {
-                    ctx.beginPath(); ctx.arc(-18, -35, 6, 0, Math.PI*2); ctx.fill();
-                    ctx.beginPath(); ctx.arc(18, -35, 6, 0, Math.PI*2); ctx.fill();
-                }
-                // 헬멧
-                ctx.fillStyle = '#e0f7fa'; ctx.strokeStyle = '#fff'; ctx.lineWidth=3;
-                ctx.beginPath(); ctx.arc(0, -50, 16, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-                // 얼굴 (헬멧 안)
-                ctx.fillStyle = '#fce4d4'; ctx.beginPath(); ctx.arc(0, -50, 10, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(-3,-51,1.5,0,Math.PI*2); ctx.arc(3,-51,1.5,0,Math.PI*2); ctx.fill();
-                // 다리
-                ctx.fillStyle = '#fff'; ctx.fillRect(-10, 0, 8, 15); ctx.fillRect(2, 0, 8, 15);
-
+            if (this.isSelected) {
+                ctx.save();
+                ctx.translate(0, -80 + Math.sin(Date.now()*0.01)*5);
+                ctx.fillStyle = '#fbbf24';
+                ctx.beginPath(); ctx.moveTo(-5, -5); ctx.lineTo(5, -5); ctx.lineTo(0, 5); ctx.fill();
                 ctx.restore();
-                return; // 우주복 그리면 끝
             }
 
-            // --- 기존 평상복 그리기 ---
+            if (this.state === 'DANCE' || this.state === 'FLY_HOME') {
+                // 우주복 코드 (생략 없이 유지)
+                if (this.state === 'DANCE') {
+                    const danceBob = Math.sin(Date.now()*0.01) * 5; ctx.translate(0, danceBob); ctx.rotate(Math.sin(Date.now()*0.005) * 0.1);
+                } else { ctx.rotate(this.direction * 0.5); }
+                ctx.fillStyle = '#fff'; drawRoundRect(ctx, -15, -45, 30, 45, 10); 
+                if (this.state === 'DANCE') { const armWag = Math.sin(Date.now()*0.02) * 10; ctx.beginPath(); ctx.arc(-18, -35 + armWag, 6, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(18, -35 - armWag, 6, 0, Math.PI*2); ctx.fill(); } 
+                else { ctx.beginPath(); ctx.arc(-18, -35, 6, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(18, -35, 6, 0, Math.PI*2); ctx.fill(); }
+                ctx.fillStyle = '#e0f7fa'; ctx.strokeStyle = '#fff'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(0, -50, 16, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = '#fce4d4'; ctx.beginPath(); ctx.arc(0, -50, 10, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(-3,-51,1.5,0,Math.PI*2); ctx.arc(3,-51,1.5,0,Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#fff'; ctx.fillRect(-10, 0, 8, 15); ctx.fillRect(2, 0, 8, 15);
+                ctx.restore(); return; 
+            }
+
             if (this.direction === -1) ctx.scale(-1, 1);
-            if (this.state === 'SLEEP' || this.state === 'WRITE') { ctx.rotate(Math.PI / 2); ctx.translate(0, -15); }
+            if (this.state === 'SLEEP' || this.state === 'WRITE' || this.state === 'SLEEP_BED') { ctx.rotate(Math.PI / 2); ctx.translate(0, -15); }
             
-            ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(0, 0, 15, 5, 0, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = this.color; drawRoundRect(ctx, -12, -40, 24, 40, 8);
-            ctx.fillStyle = '#333';
-            let legOffset = (this.state === 'WALK' || (this.state === 'AI_WORK' && this.timer > 490)) ? Math.sin(Date.now()*0.01)*5 : 0;
-            ctx.fillRect(-8, 0, 6, 15 + legOffset); ctx.fillRect(2, 0, 6, 15 - legOffset);
+            // [NEW] HUG 상태 그리기
+            if (this.state === 'HUG') {
+                // 앉아서 안고 있는 자세
+                ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(0, 5, 15, 5, 0, 0, Math.PI*2); ctx.fill();
+                // 다리 (앉음)
+                ctx.fillStyle = '#333'; ctx.fillRect(-8, 5, 10, 10); ctx.fillRect(8, 5, 10, 10); 
+                // 몸통
+                ctx.fillStyle = this.color; drawRoundRect(ctx, -12, -30, 24, 30, 8);
+                // 팔 (안고 있음)
+                ctx.beginPath(); ctx.arc(12, -20, 6, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(-12, -20, 6, 0, Math.PI*2); ctx.fill();
+            } else if (this.state === 'SIT_WORK') {
+                // 의자에 앉은 자세
+                ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(0, 5, 15, 5, 0, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#333'; ctx.fillRect(-8, 0, 6, 15); ctx.fillRect(2, 0, 6, 15); // 다리
+                ctx.fillStyle = this.color; drawRoundRect(ctx, -12, -40, 24, 40, 8); // 몸통
+                ctx.beginPath(); ctx.arc(10, -30, 6, 0, Math.PI*2); ctx.fill(); // 손
+            } else {
+                // 일반 상태 그리기 (기존 코드)
+                ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(0, 0, 15, 5, 0, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = this.color; drawRoundRect(ctx, -12, -40, 24, 40, 8);
+                ctx.fillStyle = '#333';
+                let legOffset = (this.state === 'WALK' || (this.state === 'AI_WORK' && this.timer > 490)) ? Math.sin(Date.now()*0.01)*5 : 0;
+                ctx.fillRect(-8, 0, 6, 15 + legOffset); ctx.fillRect(2, 0, 6, 15 - legOffset);
+                ctx.fillStyle = this.color; 
+                if (this.state === 'READ') { ctx.beginPath(); ctx.arc(10, -25, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillRect(10, -35, 14, 20); ctx.fillStyle = '#3b82f6'; ctx.fillRect(10, -35, 14, 4); } 
+                else if (this.state === 'PHONE') { ctx.beginPath(); ctx.arc(8, -30, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#111'; ctx.fillRect(8, -42, 10, 16); ctx.fillStyle = '#81d4fa'; ctx.fillRect(9, -41, 8, 14); } 
+                else if (this.state === 'WRITE') { ctx.beginPath(); ctx.arc(12, -25, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillRect(12, -35, 14, 18); ctx.fillStyle = '#333'; ctx.fillRect(14, -28, 10, 2); } 
+                else if (this.state === 'CLAP') { const clapY = Math.sin(Date.now()*0.02) * 5; ctx.beginPath(); ctx.arc(12, -30 + clapY, 6, 0, Math.PI*2); ctx.fill(); } 
+                else if (this.state === 'PHOTO') { ctx.beginPath(); ctx.arc(10, -35, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#111'; ctx.fillRect(8, -48, 16, 12); ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(16, -42, 5, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#eee'; ctx.fillRect(10, -50, 4, 2); } 
+                else if (this.state === 'AI_WORK') { ctx.beginPath(); ctx.arc(10, -30, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#cfd8dc'; ctx.fillRect(12, -45, 2, 14); ctx.fillRect(8, -31, 16, 2); }
+                else { ctx.beginPath(); ctx.arc(0, -25, 6, 0, Math.PI*2); ctx.fill(); }
+            }
             
-            ctx.fillStyle = this.color; 
-            if (this.state === 'READ') { ctx.beginPath(); ctx.arc(10, -25, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillRect(10, -35, 14, 20); ctx.fillStyle = '#3b82f6'; ctx.fillRect(10, -35, 14, 4); } 
-            else if (this.state === 'PHONE') { ctx.beginPath(); ctx.arc(8, -30, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#111'; ctx.fillRect(8, -42, 10, 16); ctx.fillStyle = '#81d4fa'; ctx.fillRect(9, -41, 8, 14); } 
-            else if (this.state === 'WRITE') { ctx.beginPath(); ctx.arc(12, -25, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillRect(12, -35, 14, 18); ctx.fillStyle = '#333'; ctx.fillRect(14, -28, 10, 2); } 
-            else if (this.state === 'CLAP') { const clapY = Math.sin(Date.now()*0.02) * 5; ctx.beginPath(); ctx.arc(12, -30 + clapY, 6, 0, Math.PI*2); ctx.fill(); } 
-            else if (this.state === 'PHOTO') { ctx.beginPath(); ctx.arc(10, -35, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#111'; ctx.fillRect(8, -48, 16, 12); ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(16, -42, 5, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#eee'; ctx.fillRect(10, -50, 4, 2); } 
-            else if (this.state === 'AI_WORK') { ctx.beginPath(); ctx.arc(10, -30, 6, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#cfd8dc'; ctx.fillRect(12, -45, 2, 14); ctx.fillRect(8, -31, 16, 2); }
-            else { ctx.beginPath(); ctx.arc(0, -25, 6, 0, Math.PI*2); ctx.fill(); }
-            
+            // 얼굴 & 헤어
             ctx.fillStyle = '#fce4d4'; ctx.beginPath(); ctx.arc(0, -45, 12, 0, Math.PI*2); ctx.fill();
             ctx.fillStyle = '#333'; const hair = this.type.hair; ctx.beginPath(); ctx.arc(0, -45, 13, Math.PI, 0); ctx.fill();
             if (hair === 'SHORT') { ctx.beginPath(); ctx.moveTo(-13, -45); ctx.lineTo(-13, -38); ctx.lineTo(-10, -45); ctx.fill(); ctx.beginPath(); ctx.moveTo(13, -45); ctx.lineTo(13, -38); ctx.lineTo(10, -45); ctx.fill(); } 
@@ -586,6 +806,14 @@
             else if (hair === 'PONYTAIL') { ctx.beginPath(); ctx.arc(-12, -38, 5, 0, Math.PI*2); ctx.fill(); }
             ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(-4, -45, 1.5, 0, Math.PI*2); ctx.fill(); if (this.state === 'PHOTO') { ctx.beginPath(); ctx.moveTo(2, -45); ctx.lineTo(6, -45); ctx.stroke(); } else { ctx.beginPath(); ctx.arc(4, -45, 1.5, 0, Math.PI*2); ctx.fill(); } ctx.beginPath(); ctx.arc(0, -42, 1, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-2, -39); ctx.quadraticCurveTo(0, -37, 2, -39); ctx.stroke(); 
             ctx.save(); ctx.translate(-2, -56); ctx.rotate(-0.2); ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(15,0); ctx.lineTo(8,-15); ctx.fill(); ctx.fillStyle = '#fff'; drawRoundRect(ctx, -2,0,19,5,2); ctx.beginPath(); ctx.arc(8,-15,3,0,Math.PI*2); ctx.fill(); ctx.restore();
+            
+            // [NEW] 자는 중이면 Zzz 표시
+            if (this.state === 'SLEEP_BED' || this.state === 'SLEEP') {
+                ctx.save(); ctx.translate(0, -60);
+                ctx.fillStyle = '#fff'; ctx.font = '14px Arial'; ctx.fillText('Zzz...', 0, -Math.abs(Math.sin(Date.now()*0.002)*10));
+                ctx.restore();
+            }
+
             ctx.restore();
         }
     }
@@ -598,7 +826,6 @@
             const rx = (this.homeRoom % 2) * rw; const ry = Math.floor(this.homeRoom / 2) * rh;
             this.x = rx + Math.random() * rw; this.y = ry + Math.random() * rh;
         }
-        // [FIX] 동물 랜덤 이동 범위 제한 (자기 방)
         setRandomTarget() {
             const rw = width/2; const rh = height/2;
             const rx = (this.homeRoom % 2) * rw; const ry = Math.floor(this.homeRoom / 2) * rh;
@@ -606,19 +833,28 @@
             this.targetY = ry + rh*0.4 + Math.random() * (rh*0.6 - 20);
         }
         returnHome() {
-            this.setRandomTarget(); // 방 안의 랜덤 위치
+            this.setRandomTarget(); 
             this.state = 'FLY_HOME';
         }
         update() {
             if (isPaused) return;
-            
-            // [NEW] 우주 댄스
             if (isSpaceMode && this.state === 'DANCE') {
                 if (spaceModeTimer <= 0) this.returnHome();
                 return;
             }
             if (this.state === 'FLY_HOME') {
                 this.updateMovement(5);
+                return;
+            }
+
+            // [NEW] 안겨있는 상태
+            if (this.state === 'BE_HUGGED') {
+                this.timer--;
+                if (this.timer <= 0) {
+                    this.state = 'IDLE';
+                    // 살짝 옆으로 이동해서 겹침 방지
+                    this.x += 20; 
+                }
                 return;
             }
 
@@ -634,23 +870,29 @@
         triggerAngry() { if (this.isCat) { this.state = 'ANGRY'; this.angryTimer = 60; } }
         draw() {
             ctx.save(); ctx.translate(this.x, this.y); 
-            
-            // [NEW] 동물 우주복
             if (this.state === 'DANCE' || this.state === 'FLY_HOME') {
-                if (this.state === 'DANCE') {
-                    const danceBob = Math.sin(Date.now()*0.01) * 5;
-                    ctx.translate(0, danceBob);
-                    ctx.rotate(Math.sin(Date.now()*0.005) * 0.1);
-                } else { ctx.rotate(this.direction * 0.5); }
-
-                // 우주복 (작은 둥근 형태)
+                if (this.state === 'DANCE') { const danceBob = Math.sin(Date.now()*0.01) * 5; ctx.translate(0, danceBob); ctx.rotate(Math.sin(Date.now()*0.005) * 0.1); } else { ctx.rotate(this.direction * 0.5); }
                 ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -5, 12, 0, Math.PI*2); ctx.fill();
-                // 헬멧
-                ctx.fillStyle = '#e0f7fa'; ctx.strokeStyle = '#fff'; ctx.lineWidth=2;
-                ctx.beginPath(); ctx.arc(0, -10, 14, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-                // 얼굴 (헬멧 안)
+                ctx.fillStyle = '#e0f7fa'; ctx.strokeStyle = '#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0, -10, 14, 0, Math.PI*2); ctx.fill(); ctx.stroke();
                 ctx.fillStyle = this.type.color; ctx.beginPath(); ctx.arc(0, -10, 8, 0, Math.PI*2); ctx.fill();
                 ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(-3,-11,1.5,0,Math.PI*2); ctx.arc(3,-11,1.5,0,Math.PI*2); ctx.fill();
+                ctx.restore(); return;
+            }
+            
+            // [NEW] 안겨있을 때
+            if (this.state === 'BE_HUGGED') {
+                ctx.fillStyle = this.type.color;
+                // 단순화된 안긴 모습
+                ctx.beginPath(); ctx.arc(0, -10, 10, 0, Math.PI*2); ctx.fill(); // 몸
+                ctx.beginPath(); ctx.arc(0, -22, 8, 0, Math.PI*2); ctx.fill(); // 머리
+                // 귀
+                if(this.type.ear === 'POINTY') {
+                    ctx.beginPath(); ctx.moveTo(-6,-28); ctx.lineTo(-8,-34); ctx.lineTo(-3,-30); ctx.fill();
+                    ctx.beginPath(); ctx.moveTo(6,-28); ctx.lineTo(8,-34); ctx.lineTo(3,-30); ctx.fill();
+                } else {
+                    ctx.beginPath(); ctx.ellipse(-8, -22, 4, 6, 0, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.ellipse(8, -22, 4, 6, 0, 0, Math.PI*2); ctx.fill();
+                }
                 ctx.restore(); return;
             }
 
@@ -694,7 +936,7 @@
         tCtx.font = '900 100px "Pretendard"';
         tCtx.fillStyle = 'white'; tCtx.textAlign = 'center';
         tCtx.textBaseline = 'middle';
-        tCtx.fillText(CONFIG.text, width/2, height/2); // 중앙에 배치
+        tCtx.fillText(CONFIG.text, width/2, height/2); 
         try {
             const data = tCtx.getImageData(0,0,width,height).data;
             for(let y=0; y<height; y+=8) {
@@ -719,11 +961,24 @@
     canvas.addEventListener('click', (e) => {
         const rect = canvas.getBoundingClientRect(); const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
         const allEntities = [...humans, ...animals];
-        allEntities.forEach(ent => {
-            if (ent.checkClick(mx, my)) {
-                if (ent instanceof Animal && ent.isCat) { ent.triggerAngry(); } else { for(let i=0; i<3; i++) { hearts.push(new Heart(ent.x + (Math.random()-0.5)*20, ent.y - 40)); } }
+        let clickedEntity = null;
+        for (let i = allEntities.length - 1; i >= 0; i--) {
+            if (allEntities[i].checkClick(mx, my)) {
+                clickedEntity = allEntities[i];
+                break;
             }
-        });
+        }
+        if (clickedEntity) {
+            if (clickedEntity instanceof Human) {
+                if (selectedHuman === clickedEntity) { selectedHuman = null; clickedEntity.isSelected = false; } 
+                else { if (selectedHuman) selectedHuman.isSelected = false; selectedHuman = clickedEntity; selectedHuman.isSelected = true; selectedHuman.state = 'IDLE'; }
+            } else {
+                if (clickedEntity.isCat) clickedEntity.triggerAngry(); 
+                else { for(let i=0; i<3; i++) hearts.push(new Heart(clickedEntity.x + (Math.random()-0.5)*20, clickedEntity.y - 40)); }
+            }
+        } else {
+            if (selectedHuman) { selectedHuman.isSelected = false; selectedHuman = null; }
+        }
     });
 
     window.addEventListener('resize', () => { setTimeout(() => { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; init(); }, 200); });
@@ -733,26 +988,38 @@
     
     window.closeModal = () => { document.getElementById('my-msg-modal').style.display='none'; document.getElementById('modal-overlay').style.display='none'; };
 
+    function animateRocketSend(callback) {
+        const inputBar = document.getElementById('input-bar');
+        const rocket = document.getElementById('flying-rocket');
+        const mailbox = document.getElementById('mailbox-icon');
+        const startRect = inputBar.getBoundingClientRect();
+        const endRect = mailbox.getBoundingClientRect();
+        inputBar.style.opacity = '0'; inputBar.style.transform = 'translateX(-50%) scale(0.8)';
+        rocket.style.display = 'block'; rocket.style.left = (startRect.left + startRect.width/2 - 30) + 'px'; rocket.style.top = (startRect.top + startRect.height/2 - 30) + 'px'; rocket.style.transform = 'scale(1) rotate(0deg)';
+        let smokeInterval = setInterval(() => {
+            const rRect = rocket.getBoundingClientRect(); const smoke = document.createElement('div'); smoke.className = 'smoke-puff'; smoke.style.left = (rRect.left + 20) + 'px'; smoke.style.top = (rRect.top + 40) + 'px'; document.body.appendChild(smoke); setTimeout(() => smoke.remove(), 1000);
+        }, 100);
+        setTimeout(() => { rocket.style.left = (endRect.left + endRect.width/2 - 30) + 'px'; rocket.style.top = (endRect.top + endRect.height/2 - 30) + 'px'; rocket.style.transform = 'scale(0.5) rotate(45deg)'; }, 100);
+        setTimeout(() => { clearInterval(smokeInterval); rocket.style.display = 'none'; mailbox.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.2)' }, { transform: 'scale(1)' }], { duration: 300 }); if(callback) callback(); setTimeout(() => { inputBar.style.opacity = '1'; inputBar.style.transform = 'translateX(-50%) scale(1)'; }, 500); }, 1300); 
+    }
+
     const sendBtn = document.getElementById('send-btn');
     const msgInput = document.getElementById('msg-input');
     const senderSelect = document.getElementById('sender-select');
     const receiverSelect = document.getElementById('receiver-select');
 
-    sendBtn.addEventListener('click', async () => {
+    msgInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { sendBtn.click(); } });
+
+    sendBtn.addEventListener('click', () => {
         const sender = senderSelect.value; const receiver = receiverSelect.value; const rawText = msgInput.value.trim();
         if(!rawText) return alert('메시지 내용을 입력해주세요!');
-        let finalMessage = rawText; if (sender !== '익명') { finalMessage = `[${sender}] ${rawText}`; }
-        const orgBtn = sendBtn.innerText; sendBtn.innerText = '🚀'; sendBtn.disabled = true;
-        try {
-            await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ name: receiver, text: finalMessage }) });
-            alert('메시지 전송 완료! 📨'); msgInput.value = '';
-        } catch(e) { alert('전송 실패 ㅠㅠ'); } finally { sendBtn.innerText = orgBtn; sendBtn.disabled = false; }
+        animateRocketSend(async () => {
+            let finalMessage = rawText; if (sender !== '익명') { finalMessage = `[${sender}] ${rawText}`; }
+            try { await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ name: receiver, text: finalMessage }) }); msgInput.value = ''; } catch(e) { alert('전송 실패 ㅠㅠ'); }
+        });
     });
 
-    window.openMyMsgModal = () => {
-        document.getElementById('modal-overlay').style.display='block'; document.getElementById('my-msg-modal').style.display='flex';
-        document.getElementById('my-name-auth').value = '';
-    };
+    window.openMyMsgModal = () => { document.getElementById('modal-overlay').style.display='block'; document.getElementById('my-msg-modal').style.display='flex'; document.getElementById('my-name-auth').value = ''; };
 
     window.checkMyMessages = async () => {
         const name = document.getElementById('my-name-auth').value.trim();
